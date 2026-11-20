@@ -1,5 +1,6 @@
 // Robi en clase, versión web: corre en la tablet (o en el PC) desde GitHub Pages.
-// Los datos (alumnos, asistencia, agenda) viven en la hoja de Google del profe (ver nube/Codigo.gs);
+// En la nube solo está lo que se usa con los niños: la lista para la asistencia y el horario para el reloj
+// (hoja de Google del profe, ver nube/Codigo.gs). Temas, calendario y notas se quedan en el PC.
 // aquí no hay nombres de niños: se traen de la nube con la clave guardada en este aparato.
 const $ = (id) => document.getElementById(id);
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -24,36 +25,28 @@ const gradoDe = (g) => String(+g.slice(0, 2));
 const pequenos = (g) => +g.slice(0, 2) <= 2;   // 1° y 2°: español con eco en inglés
 
 const NUBE = leer("robi_nube", null);   // { url, clave }
-const D = Object.assign({ alumnos: [], horario: {}, agenda: [], clases: [] }, leer("robi_datos", {}));
+const D = Object.assign({ alumnos: [], horario: {}, clases: [] }, leer("robi_datos", {}));
+delete D.agenda;   // de la versión anterior
 const TOMADAS = leer("robi_tomadas", {});      // "fecha|grupo" → { ausentes: [matrículas] } (lo de este aparato)
-let PENDIENTES = leer("robi_pendientes", []);  // lo que aún no llega a la nube (sin internet)
+let PENDIENTES = leer("robi_pendientes", []).filter((p) => p.accion === "ausentes");  // lo que aún no llega a la nube (sin internet)
 
 function alumnosDe(g) { return D.alumnos.filter((a) => a.grupo === g); }
 function gruposConAlumnos() { return [...new Set(D.alumnos.map((a) => a.grupo))].sort(); }
 
-const enRango = (e, f) => e.fecha <= f && f <= (e.hasta || e.fecha);
-const paraGrupo = (e, g) => !e.para || e.para === "todos" || e.para === g || e.para === gradoDe(g);
-function agendaDel(fecha, g) { return D.agenda.filter((e) => enRango(e, fecha) && (!g || paraGrupo(e, g))); }
-
 // Las clases del día según el horario, recortadas a la hora de salida del grado.
-// Las que choca un "sin clase" de la agenda quedan en 'perdidas'.
 function clasesDel(fecha) {
   const H = D.horario;
   const dia = new Date(fecha + "T12:00").getDay();
-  if (!H || (H._festivos || []).includes(fecha)) return { clases: [], perdidas: [] };
-  const clases = [], perdidas = [];
-  for (const c0 of H[DIAS[dia]] || []) {
-    const salida = (H._salida || {})[gradoDe(c0.grupo)] || "23:59";
-    if (c0.inicio >= salida) continue;
-    const c = { ...c0, fin: c0.fin < salida ? c0.fin : salida };
-    const choca = agendaDel(fecha, c.grupo).some((e) => e.tipo === "sin_clase" &&
-      (!e.hora_desde || (e.hora_desde < c.fin && (e.hora_hasta || "23:59") > c.inicio)));
-    (choca ? perdidas : clases).push(c);
+  if (!H || (H._festivos || []).includes(fecha)) return [];
+  const clases = [];
+  for (const c of H[DIAS[dia]] || []) {
+    const salida = (H._salida || {})[gradoDe(c.grupo)] || "23:59";
+    if (c.inicio < salida) clases.push({ ...c, fin: c.fin < salida ? c.fin : salida });
   }
-  return { clases, perdidas };
+  return clases.sort((a, b) => a.inicio.localeCompare(b.inicio));
 }
 
-function claseDeHoy(g) { return clasesDel(hoyISO()).clases.find((c) => c.grupo === g); }
+function claseDeHoy(g) { return clasesDel(hoyISO()).find((c) => c.grupo === g); }
 
 // ¿después de esta clase viene un descanso del grado? (entonces a los 10 min empieza el desayuno)
 function antesDeDescanso(c) {
@@ -113,7 +106,7 @@ function pintarEstadoNube() {
 async function traerTodo() {
   try {
     const j = await nube({ accion: "todo" }, true);
-    Object.assign(D, { alumnos: j.alumnos, horario: j.horario, agenda: j.agenda, clases: j.clases });
+    Object.assign(D, { alumnos: j.alumnos, horario: j.horario, clases: j.clases });
     guardar("robi_datos", D);
     // lo que la nube ya tiene no hace falta guardarlo aparte
     for (const k of Object.keys(TOMADAS)) {
@@ -225,6 +218,11 @@ function moverOjos(t, dt) {
 
 let ultimoT = 0;
 function vivir(t) {
+  paso(t);
+  requestAnimationFrame(vivir);
+}
+// un cuadro de vida de Robi (lo llama vivir, o la ventanita flotante cuando la pestaña no se ve)
+function paso(t) {
   const dt = Math.min(0.05, (t - ultimoT) / 1000 || 0);
   ultimoT = t;
   if (t > VIVO.proxParpadeo) { VIVO.parpadeoHasta = t + 120; VIVO.proxParpadeo = t + 2500 + Math.random() * 3500; }
@@ -237,7 +235,6 @@ function vivir(t) {
   for (const b of [POSE.izq, POSE.der]) b.x += (b.meta - b.x) * (1 - Math.exp(-dt * 12));
   moverOjos(t, dt);
   pintarRobi(CTX, t);
-  requestAnimationFrame(vivir);
 }
 const CTX = $("robiCanvas").getContext("2d");
 
@@ -476,23 +473,19 @@ function pintarInicio() {
   const hoy = hoyISO(), ahora = ahoraHHMM();
   $("hoyFecha").textContent = new Date().toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
   pintarEstadoNube();
-  $("eventosHoy").innerHTML = agendaDel(hoy).filter((e) => e.tipo !== "tema")
-    .map((e) => `<span class="chip">${ICONOS[e.tipo] || "📌"} ${esc(paraTexto(e.para))}${e.hora_desde ? ` ${e.hora_desde}` : ""} ${esc(e.texto)}</span>`).join("");
-  const { clases, perdidas } = clasesDel(hoy);
-  const todas = [...clases.map((c) => ({ ...c })), ...perdidas.map((c) => ({ ...c, perdida: true }))].sort((a, b) => a.inicio.localeCompare(b.inicio));
+  const todas = clasesDel(hoy);
   if (!D.alumnos.length) {
     $("clasesHoy").innerHTML = `<p class="aviso">Aún no hay alumnos en la nube. Abre Robi en el PC una vez: él sube la lista de la planilla de Master2000 y el horario.</p>`;
   } else if (!todas.length) {
     $("clasesHoy").innerHTML = `<p class="sub">Hoy no hay clases en el horario. Puedes abrir un grupo abajo.</p>`;
   } else {
     $("clasesHoy").innerHTML = todas.map((c) => {
-      const aus = asistenciaDe(hoy, c.grupo), tema = temaDe(hoy, c.grupo);
-      const estado = c.perdida ? "perdida" : ahora >= c.fin ? "pasada" : minutos(ahora) >= minutos(c.inicio) - 10 ? "ahora" : "";
-      return `<button class="clase ${estado}" data-grupo="${c.grupo}" ${c.perdida ? "disabled" : ""}>
+      const aus = asistenciaDe(hoy, c.grupo);
+      const estado = ahora >= c.fin ? "pasada" : minutos(ahora) >= minutos(c.inicio) - 10 ? "ahora" : "";
+      return `<button class="clase ${estado}" data-grupo="${c.grupo}">
         <small>${c.inicio} – ${c.fin}${estado === "ahora" ? " · ¡ahora!" : ""}</small>
         <b>${nombreGrupo(c.grupo)}</b>
-        ${tema ? `<small>📘 ${esc(tema.texto)}</small>` : ""}
-        <small>${aus ? (aus.length ? `🙋 faltaron ${aus.length}` : "✅ vinieron todos") : c.perdida ? "🚫 sin clase" : "Asistencia pendiente"}</small>
+        <small>${aus ? (aus.length ? `🙋 faltaron ${aus.length}` : "✅ vinieron todos") : "Asistencia pendiente"}</small>
       </button>`;
     }).join("");
   }
@@ -502,9 +495,9 @@ $("inicio").addEventListener("click", (e) => { const b = e.target.closest("[data
 
 // ya es hora de una clase y el profe está en el inicio: Robi la abre solo (manos libres)
 function abrirClaseSiEsHora() {
-  if (!$("inicio").classList.contains("activa") || $("dia").classList.contains("oculto") === false) return;
+  if (!$("inicio").classList.contains("activa")) return;
   const hoy = hoyISO(), m = minutos(ahoraHHMM()), abiertas = leer("robi_abiertas", {});
-  const c = clasesDel(hoy).clases.find((c) => m >= minutos(c.inicio) - 5 && m < minutos(c.fin) - 10);
+  const c = clasesDel(hoy).find((c) => m >= minutos(c.inicio) - 5 && m < minutos(c.fin) - 10);
   if (c && abiertas[hoy] !== c.grupo + c.inicio) {
     guardar("robi_abiertas", { [hoy]: c.grupo + c.inicio });
     entrarClase(c.grupo);
@@ -516,6 +509,7 @@ function entrarClase(g) {
   Object.assign(S, { grupo: g, ausentes: new Set(asistenciaDe(hoyISO(), g) || []) });
   $("tituloGrupo").textContent = `🤖 ${nombreGrupo(g)}`;
   mostrar("clase");
+  if (!PIP_DOC) prepararVideo();
   lugarRobi("");
   $("asistencia").classList.add("oculto");
   $("globoMensaje").classList.add("oculto");
@@ -686,135 +680,140 @@ function vigilarClase() {
   if (falta > 0 && falta <= DIEZ_MIN) empezarGlobo(fin, antesDeDescanso(c));
 }
 
-// ---------- libreta del profe ----------
-const ICONOS = { tema: "📘", cambio: "⚡", evento: "📅", sin_clase: "🚫", nota: "📌" };
-function paraTexto(p) { return !p || p === "todos" ? "Todos" : p.length === 1 ? `${p}°` : corto(p); }
-function temaDe(fecha, g) { return agendaDel(fecha, g).find((e) => e.tipo === "tema"); }
-function ultimoTema(g, antesDe) {
-  return D.agenda.filter((e) => e.tipo === "tema" && e.fecha < antesDe && paraGrupo(e, g) && e.para !== "todos").sort((a, b) => a.fecha.localeCompare(b.fecha)).pop();
-}
+// ---------- Robi flotante: una ventanita encima de otras pestañas o apps ----------
+// PC (Chrome): ventana flotante de verdad (Document Picture-in-Picture).
+// iPad: "video flotante" hecho con el dibujo de Robi. Si sigue animado fuera de la pestaña depende de Safari.
+const FLOTA = { cv: document.createElement("canvas"), ventana: null, video: null, timer: null, ultimoTick: 0, ultimaVigilia: 0 };
+FLOTA.cv.width = 480; FLOTA.cv.height = 360;
+const FCTX = FLOTA.cv.getContext("2d");
+const PIP_DOC = "documentPictureInPicture" in window;
+const PIP_VIDEO = !!FLOTA.cv.captureStream && (document.pictureInPictureEnabled || "webkitSetPresentationMode" in HTMLVideoElement.prototype);
+if (!PIP_DOC && !PIP_VIDEO) $("btnFlotante").classList.add("oculto");
 
-$("btnLibreta").onclick = () => {
-  const g = S.grupo, hoy = hoyISO(), items = agendaDel(hoy, g), antes = ultimoTema(g, hoy);
-  const faltaron = faltaronAntes(g, hoy).map((id) => D.alumnos.find((a) => a.matricula === id)?.pila).filter(Boolean);
-  $("libretaGrupo").textContent = nombreGrupo(g);
-  $("libretaContenido").innerHTML = [
-    ...items.map((e) => `<div class="item"><span>${ICONOS[e.tipo] || "📌"} ${e.hora_desde ? `<small>${e.hora_desde}${e.hora_hasta ? "–" + e.hora_hasta : ""}</small> ` : ""}${esc(e.texto)}</span></div>`),
-    antes ? `<div class="item"><span><small>La clase pasada (${fechaCorta(antes.fecha)}):</small> ${esc(antes.texto)}</span></div>` : "",
-    faltaron.length ? `<div class="item"><span>👀 Faltaron la clase pasada: ${esc(faltaron.join(", "))}</span></div>` : "",
-  ].join("") || `<p class="sub">Nada anotado para hoy. Escríbelo en 📅 Agenda.</p>`;
-  $("libreta").classList.remove("oculto");
-};
-$("btnCerrarLibreta").onclick = () => $("libreta").classList.add("oculto");
-
-// ---------- agenda: calendario del año + temas y cambios del día ----------
-const MES = { y: new Date().getFullYear(), m: new Date().getMonth() };
-const fechaCorta = (iso) => new Date(iso + "T12:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" });
-
-function pintarMes() {
-  const primero = new Date(MES.y, MES.m, 1), hoy = hoyISO();
-  $("mesTitulo").textContent = primero.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
-  const celdas = ["Lun", "Mar", "Mié", "Jue", "Vie"].map((d) => `<div class="diaSem">${d}</div>`);
-  const d = new Date(primero);
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // desde el lunes de la primera semana
-  while (d.getMonth() === MES.m || d < primero) {
-    if (d.getDay() >= 1 && d.getDay() <= 5) {
-      const f = d.toLocaleDateString("en-CA"), eventos = agendaDel(f);
-      const festivo = (D.horario._festivos || []).includes(f), libre = festivo || eventos.some((e) => e.tipo === "sin_clase" && !e.hora_desde && (e.para || "todos") === "todos");
-      celdas.push(`<button class="diaMes ${f === hoy ? "hoy" : ""} ${d.getMonth() !== MES.m ? "fuera" : ""} ${libre ? "libre" : ""}" data-fecha="${f}">
-        <span class="num">${d.getDate()}</span>
-        ${festivo ? `<span class="ev">🚫 Festivo</span>` : ""}
-        ${eventos.slice(0, 4).map((e) => `<span class="ev">${ICONOS[e.tipo] || "📌"} ${esc(e.texto)}</span>`).join("")}
-        ${eventos.length > 4 ? `<span class="ev">+${eventos.length - 4} más</span>` : ""}
-        <span class="marcas">${[...new Set(eventos.map((e) => ICONOS[e.tipo]))].join("")}</span>
-      </button>`);
-    }
-    d.setDate(d.getDate() + 1);
+function envolver(ctx, texto, ancho) {
+  const lineas = [];
+  let linea = "";
+  for (const p of texto.split(/\s+/)) {
+    const prueba = linea ? linea + " " + p : p;
+    if (ctx.measureText(prueba).width > ancho && linea) { lineas.push(linea); linea = p; } else linea = prueba;
   }
-  $("mes").innerHTML = celdas.join("");
+  if (linea) lineas.push(linea);
+  return lineas;
 }
-$("mes").addEventListener("click", (e) => { const b = e.target.closest("[data-fecha]"); if (b) abrirDia(b.dataset.fecha); });
-$("mesAntes").onclick = () => { MES.m--; if (MES.m < 0) { MES.m = 11; MES.y--; } pintarMes(); };
-$("mesDespues").onclick = () => { MES.m++; if (MES.m > 11) { MES.m = 0; MES.y++; } pintarMes(); };
-$("mesHoy").onclick = () => { Object.assign(MES, { y: new Date().getFullYear(), m: new Date().getMonth() }); pintarMes(); };
-$("btnAgenda").onclick = () => { mostrar("agenda"); pintarMes(); };
-$("btnAgendaVolver").onclick = () => { mostrar("inicio"); pintarInicio(); };
-
-function opcionesPara() {
-  const grupos = [...new Set([...gruposConAlumnos(), ...DIAS.flatMap((d) => (D.horario[d] || []).map((c) => c.grupo))])].sort();
-  return [`<option value="todos">Todos los grupos</option>`,
-    ...["1", "2", "3", "4", "5"].map((g) => `<option value="${g}">Todo ${g}°</option>`),
-    ...grupos.map((g) => `<option value="${g}">${corto(g)}</option>`)].join("");
+function rectRedondo(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
 }
 
-function abrirDia(fecha) {
-  const f = $("formAgenda");
-  f.reset();
-  f.fecha.value = fecha; f.eid.value = "";
-  f.para.innerHTML = opcionesPara();
-  $("diaMensaje").textContent = "";
-  pintarDia(fecha);
-  $("dia").classList.remove("oculto");
-}
-
-function pintarDia(fecha) {
-  $("diaTitulo").textContent = new Date(fecha + "T12:00").toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
-  const eventos = agendaDel(fecha), { clases, perdidas } = clasesDel(fecha);
-  const festivo = (D.horario._festivos || []).includes(fecha);
-  const filasClases = [...clases, ...perdidas.map((c) => ({ ...c, perdida: true }))].sort((a, b) => a.inicio.localeCompare(b.inicio)).map((c) => {
-    const tema = temaDe(fecha, c.grupo), aus = asistenciaDe(fecha, c.grupo);
-    const nombres = (aus || []).map((id) => D.alumnos.find((a) => a.matricula === id)?.pila.split(" ")[0]).filter(Boolean);
-    return `<div class="item"><span><b>${c.inicio} ${corto(c.grupo)}</b> ${c.perdida ? "🚫" : ""} ${tema ? `📘 ${esc(tema.texto)}` : `<small>sin tema</small>`}
-      ${aus ? `<br><small>${nombres.length ? "Faltaron: " + esc(nombres.join(", ")) : "Vinieron todos"}</small>` : ""}</span></div>`;
-  });
-  $("diaContenido").innerHTML = (festivo ? `<p>🚫 Festivo (del horario)</p>` : "") +
-    eventos.map((e) => `<div class="item" data-id="${e.id}"><span>${ICONOS[e.tipo] || "📌"} <small>${esc(paraTexto(e.para))}${e.hora_desde ? ` · ${e.hora_desde}${e.hora_hasta ? "–" + e.hora_hasta : ""}` : ""}${e.hasta && e.hasta !== e.fecha ? ` · hasta ${fechaCorta(e.hasta)}` : ""}</small><br>${esc(e.texto)}</span>
-      <button data-editar="${e.id}" title="Editar">✏️</button><button data-borrar="${e.id}" title="Borrar">✕</button></div>`).join("") +
-    (filasClases.length ? `<h3>Clases</h3>${filasClases.join("")}` : "");
-}
-
-$("diaContenido").addEventListener("click", (e) => {
-  const borrar = e.target.dataset.borrar, editar = e.target.dataset.editar, f = $("formAgenda");
-  if (borrar && confirm("¿Borrar esto de la agenda?")) {
-    D.agenda = D.agenda.filter((x) => x.id !== borrar);
-    guardar("robi_datos", D);
-    encolar({ accion: "agenda_borrar", id: borrar });
-    pintarDia(f.fecha.value); pintarMes();
+function dibujarFlotante() {
+  const t = performance.now(), ctx = FCTX, W = FLOTA.cv.width, H = FLOTA.cv.height;
+  if (document.hidden) {   // la pestaña de Robi no se ve: la ventanita mantiene vivos a Robi, el globo y el reloj
+    paso(t);
+    if (GLOBO.fin && t - FLOTA.ultimoTick > 500) { FLOTA.ultimoTick = t; tickGlobo(); }
+    if (t - FLOTA.ultimaVigilia > 10000) { FLOTA.ultimaVigilia = t; vigilarClase(); }
   }
-  if (editar) {
-    const ev = D.agenda.find((x) => x.id === editar);
-    for (const k of ["tipo", "para", "texto", "hora_desde", "hora_hasta", "hasta"]) f[k].value = ev[k] || (k === "para" ? "todos" : "");
-    f.eid.value = ev.id;
-    f.fecha.value = ev.fecha;
-    f.texto.focus();
+  ctx.fillStyle = "#0f1733";
+  ctx.fillRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = false;
+  const conGlobo = !!GLOBO.fin, tam = conGlobo ? 170 : 230;
+  const rx = conGlobo ? 30 : (W - tam) / 2, ry = H - tam - 8;
+  if (conGlobo) {
+    const restante = Math.max(0, GLOBO.fin - Date.now()), p = lim(1 - restante / GLOBO.total, 0, 1);
+    const r = 45 + 70 * p, cx = 330 + (restante <= 60000 ? Math.sin(t / 30) * 3 : 0), cy = 175 - r * 0.2 + Math.sin(t / 500) * 5;
+    const color = `hsl(${Math.round(150 - 150 * p)} 85% 52%)`;
+    ctx.strokeStyle = "#ffffffcc"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy + r + 8);
+    ctx.quadraticCurveTo(cx - 30, cy + r + 70, rx + tam * 56 / 64, ry + tam * 37 / 64); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(cx, cy, r * 0.88, r, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx - 7, cy + r + 8); ctx.lineTo(cx, cy + r - 2); ctx.lineTo(cx + 7, cy + r + 8); ctx.fill();
+    ctx.fillStyle = "#ffffff55";
+    ctx.beginPath(); ctx.ellipse(cx - r * 0.35, cy - r * 0.4, r * 0.15, r * 0.28, -0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = `900 ${Math.round(r * 0.85)}px system-ui, sans-serif`;
+    ctx.fillText($("globoTiempo").textContent, cx, cy);
   }
-});
+  ctx.drawImage($("robiCanvas"), rx, ry, tam, tam);
+  const msj = $("globoMensaje");
+  if (!msj.classList.contains("oculto")) {
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "900 56px system-ui, sans-serif";
+    ctx.fillText(msj.textContent, W / 2, 70);
+  }
+  const b = $("burbuja");
+  if (!b.classList.contains("oculto") && b.textContent) {
+    ctx.font = "700 24px system-ui, sans-serif";
+    const lineas = envolver(ctx, b.textContent, W - 70).slice(0, 4);
+    ctx.fillStyle = "#fff";
+    rectRedondo(ctx, 20, 12, W - 40, lineas.length * 30 + 20, 16); ctx.fill();
+    ctx.fillStyle = "#1d2b4f"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    lineas.forEach((l, i) => ctx.fillText(l, W / 2, 24 + i * 30));
+  }
+  if (FLOTA.ventana) FLOTA.ventana.requestAnimationFrame(dibujarFlotante);
+}
 
-$("formAgenda").onsubmit = (e) => {
-  e.preventDefault();
-  const f = e.target;
-  const ev = { id: f.eid.value || Math.random().toString(36).slice(2, 10), fecha: f.fecha.value, hasta: f.hasta.value > f.fecha.value ? f.hasta.value : "",
-    para: f.para.value, tipo: f.tipo.value, texto: f.texto.value.trim(), hora_desde: f.hora_desde.value, hora_hasta: f.hora_hasta.value };
-  if (!ev.texto) return;
-  D.agenda = D.agenda.filter((x) => x.id !== ev.id).concat(ev);
-  guardar("robi_datos", D);
-  encolar({ accion: "agenda_guardar", evento: ev });
-  const fecha = f.fecha.value;
-  f.reset(); f.fecha.value = fecha; f.eid.value = "";
-  pintarDia(fecha); pintarMes();
-};
-$("btnCerrarDia").onclick = () => $("dia").classList.add("oculto");
+FLOTA.cv.addEventListener("pointerdown", () => { saltar(); emote("feliz", 900); sonido([880, 1320], "sine", 0.07, 0.05); });
+
+// iPad: el video se prepara al entrar a la clase, para que el botón 🪟 lo haga flotar al primer toque
+function prepararVideo() {
+  if (FLOTA.video || !PIP_VIDEO) return;
+  const v = document.createElement("video");
+  v.muted = true; v.playsInline = true; v.autoplay = true;
+  v.setAttribute("playsinline", ""); v.setAttribute("muted", "");
+  v.className = "videoFlotante";
+  document.body.append(v);
+  dibujarFlotante();
+  v.srcObject = FLOTA.cv.captureStream(15);
+  v.play().catch(() => {});
+  FLOTA.video = v;
+  FLOTA.timer = setInterval(dibujarFlotante, 66);
+}
+
+async function robiFlotante() {
+  if (FLOTA.ventana) return FLOTA.ventana.close();
+  if (PIP_DOC) {
+    try {
+      const w = await documentPictureInPicture.requestWindow({ width: 400, height: 300 });
+      FLOTA.ventana = w;
+      w.document.title = "Robi";
+      Object.assign(w.document.body.style, { margin: "0", background: "#0f1733", overflow: "hidden" });
+      Object.assign(FLOTA.cv.style, { width: "100vw", height: "100vh", objectFit: "contain", display: "block" });
+      w.document.body.append(FLOTA.cv);
+      w.addEventListener("pagehide", () => { FLOTA.ventana = null; });
+      dibujarFlotante();
+    } catch (e) { console.warn(e); alert("No se pudo abrir la ventanita flotante: " + e.message); }
+    return;
+  }
+  const v = FLOTA.video;
+  if (!v) return;
+  try {
+    if (document.pictureInPictureElement === v) return document.exitPictureInPicture();
+    if (v.webkitPresentationMode === "picture-in-picture") return v.webkitSetPresentationMode("inline");
+    if (v.paused) v.play().catch(() => {});
+    if (v.requestPictureInPicture && document.pictureInPictureEnabled) await v.requestPictureInPicture();
+    else v.webkitSetPresentationMode("picture-in-picture");
+  } catch (e) { console.warn(e); alert("Este navegador no dejó abrir la ventanita flotante: " + e.message); }
+}
+$("btnFlotante").onclick = robiFlotante;
 
 // ---------- configurar la nube ----------
 $("formNube").onsubmit = async (e) => {
   e.preventDefault();
   const url = e.target.url.value.trim(), clave = e.target.clave.value.trim();
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) {
+    $("nubeMensaje").textContent = "La dirección debe empezar con https://script.google.com/ y terminar en /exec.";
+    return;
+  }
   $("nubeMensaje").textContent = "Conectando…";
+  let j;
   try {
-    const j = await (await fetch(`${url}?${new URLSearchParams({ accion: "todo", clave })}`)).json();
-    if (!j.ok) throw new Error(j.error === "clave" ? "La clave no es correcta." : j.error);
+    j = await (await fetch(`${url}?${new URLSearchParams({ accion: "todo", clave })}`)).json();
   } catch (err) {
-    $("nubeMensaje").textContent = err.message.includes("clave") ? err.message : "No pude conectar. Revisa la dirección (debe terminar en /exec).";
+    $("nubeMensaje").textContent = "No pude conectar. Revisa que en la implementación diga «Quién tiene acceso: Cualquier usuario» y que haya internet.";
+    return;
+  }
+  if (!j.ok) {
+    $("nubeMensaje").textContent = j.error === "clave" ? "La clave no es correcta." : "La nube respondió con un error: " + j.error;
     return;
   }
   guardar("robi_nube", { url, clave });

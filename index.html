@@ -30,11 +30,9 @@
     <h1>🤖 Robi</h1>
     <div id="hoyFecha"></div>
     <span id="estadoNube"></span>
-    <button id="btnAgenda">📅 Agenda</button>
     <button id="btnActualizar" title="Traer lo último de la nube">🔄</button>
   </header>
   <div id="vozEstado" class="aviso oculto"></div>
-  <div id="eventosHoy"></div>
   <div id="clasesHoy"></div>
   <details id="otrosGrupos"><summary>Abrir otro grupo</summary><div id="listaGrupos"></div></details>
   <p class="pie"><button id="btnNube" class="chico">⚙️ Cambiar la nube</button></p>
@@ -48,7 +46,7 @@
     <div id="reloj"></div>
     <button id="btnFaltaron">🙋 ¿Quién faltó?</button>
     <button id="btnGlobo" title="Empezar los 10 minutos del globo ahora">🎈</button>
-    <button id="btnLibreta" title="Lo de hoy (solo para el profe)">📒</button>
+    <button id="btnFlotante" title="Robi en una ventanita encima de otras pestañas">🪟</button>
   </header>
   <div id="escenario">
     <div id="robi">
@@ -82,61 +80,6 @@
     </div>
   </div>
 </section>
-
-<!-- Agenda: calendario del año (eventos fijos) + temas y cambios de cada día -->
-<section id="agenda" class="pantalla">
-  <header>
-    <button id="btnAgendaVolver">⬅</button>
-    <button id="mesAntes">◀</button>
-    <h2 id="mesTitulo"></h2>
-    <button id="mesDespues">▶</button>
-    <button id="mesHoy">Hoy</button>
-  </header>
-  <div id="leyenda">🚫 Sin clase · 📅 Evento · 📘 Tema · ⚡ Cambio · 📌 Nota</div>
-  <div id="mes"></div>
-</section>
-
-<!-- Un día de la agenda -->
-<div id="dia" class="modal oculto">
-  <div class="tarjeta">
-    <h2 id="diaTitulo"></h2>
-    <div id="diaContenido"></div>
-    <form id="formAgenda">
-      <input type="hidden" name="eid">
-      <input type="hidden" name="fecha">
-      <div class="fila">
-        <select name="tipo">
-          <option value="tema">📘 Tema de clase</option>
-          <option value="cambio">⚡ Cambio de última hora</option>
-          <option value="evento">📅 Evento</option>
-          <option value="sin_clase">🚫 Sin clase</option>
-          <option value="nota">📌 Nota para mí</option>
-        </select>
-        <select name="para"></select>
-      </div>
-      <textarea name="texto" rows="2" placeholder="¿Qué pasa este día?" required></textarea>
-      <details><summary>Horas o varios días</summary>
-        <label>De <input type="time" name="hora_desde"></label>
-        <label>a <input type="time" name="hora_hasta"></label>
-        <label>Hasta el día <input type="date" name="hasta"></label>
-      </details>
-      <div class="botones">
-        <button>💾 Guardar</button>
-        <button type="button" id="btnCerrarDia" class="gris">Cerrar</button>
-      </div>
-      <p id="diaMensaje"></p>
-    </form>
-  </div>
-</div>
-
-<!-- Libreta del profe: lo de hoy para este grupo -->
-<div id="libreta" class="modal oculto">
-  <div class="tarjeta">
-    <h2>📒 Hoy con <span id="libretaGrupo"></span></h2>
-    <div id="libretaContenido"></div>
-    <div class="botones"><button id="btnCerrarLibreta" class="gris">Cerrar</button></div>
-  </div>
-</div>
 
 <canvas id="confeti"></canvas>
 <script type="module" src="app.js"></script>

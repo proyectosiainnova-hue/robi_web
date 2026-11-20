@@ -47,11 +47,8 @@ header h1, header h2 { margin: 0; font-size: 24px; }
 }
 .clase.ahora { border-color: var(--verde); }
 .clase.pasada { opacity: .55; }
-.clase.perdida { opacity: .5; text-decoration: line-through; }
 .clase b { font-size: 22px; }
 .clase small { color: var(--suave); font-weight: 400; }
-#eventosHoy { padding: 12px 16px 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { background: #ffffff1a; border-radius: 99px; padding: 4px 12px; font-size: 15px; }
 #otrosGrupos { padding: 0 16px; }
 #otrosGrupos summary { cursor: pointer; color: var(--suave); padding: 8px 0; }
 #listaGrupos { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -123,41 +120,13 @@ header h1, header h2 { margin: 0; font-size: 24px; }
 .nino.volvio { animation: brilla 1s ease-in-out 3; }
 @keyframes brilla { 50% { box-shadow: 0 0 0 6px var(--amarillo); } }
 
-/* agenda */
-#mesTitulo { flex: 1; text-align: center; text-transform: capitalize; }
-#leyenda { color: var(--suave); padding: 8px 16px; font-size: 15px; }
-#mes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 0 16px 16px; }
-.diaSem { text-align: center; color: var(--suave); font-size: 14px; }
-.diaMes {
-  min-height: 92px; background: var(--fondo2); border-radius: 12px; padding: 6px; text-align: left;
-  display: flex; flex-direction: column; gap: 3px; font-weight: 400; font-size: 13px; box-shadow: none;
-}
-.diaMes.hoy { outline: 3px solid var(--verde); }
-.diaMes.fuera { opacity: .35; }
-.diaMes.libre { background: #3a1d3a; }
-.diaMes .num { font-weight: 800; font-size: 16px; }
-.diaMes .ev { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* modales */
-.modal { position: fixed; inset: 0; background: #000a; z-index: 20; display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+/* tarjeta */
 .tarjeta { background: var(--tarjeta); color: var(--tarjetaTexto); border-radius: 20px; padding: 18px 20px; width: min(640px, 100%); }
 .tarjeta h2 { margin-top: 0; }
-.tarjeta .fila { display: flex; gap: 8px; }
-#formAgenda { display: grid; gap: 8px; margin-top: 12px; border-top: 2px dashed #c9d2f3; padding-top: 12px; }
-#formAgenda label { display: inline-flex; gap: 6px; align-items: center; margin: 6px 12px 0 0; }
-#formAgenda label input { width: auto; }
-.item { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid #e3e7f5; }
-.item span { flex: 1; }
-.item small { color: #6b7598; }
-.item button { padding: 2px 10px; background: #eef1fb; color: var(--tarjetaTexto); box-shadow: none; }
-#diaMensaje, #nubeMensaje { min-height: 1.2em; margin: 0; color: #c0392b; }
+#nubeMensaje { min-height: 1.2em; margin: 0; color: #c0392b; }
 
 #confeti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
 
-@media (max-width: 600px) {
-  #mes { grid-template-columns: repeat(5, 1fr); gap: 3px; padding: 0 8px 8px; }
-  .diaMes { min-height: 64px; font-size: 11px; padding: 3px; }
-  .diaMes .ev { display: none; }
-}
-.diaMes .marcas { display: none; }
-@media (max-width: 600px) { .diaMes .marcas { display: block; } }
+
+/* el video escondido que el iPad hace flotar (no puede ser display:none) */
+.videoFlotante { position: fixed; right: 0; bottom: 0; width: 4px; height: 3px; opacity: .01; pointer-events: none; }
